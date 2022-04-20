@@ -75,3 +75,62 @@ def custom_channel_converter(img):
     img3=cv2.cvtColor(img,cv2.COLOR_RGB2HLS)[:,:,1] #L channel
     img4=cv2.cvtColor(img,cv2.COLOR_RGB2HLS)[:,:,2] #S channel
     return img1, img2, img3, img4
+    
+def sobel_image(img, orient='x', thresh_min=0, thresh_max=255, convert=True):
+    
+    gray= img
+    if(convert):
+        gray= cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    
+    sobel=None
+    if(orient=='x'):
+        sobel= cv2.Sobel(gray, cv2.CV_64F, 1,0)
+    else:
+        sobel= cv2.Sobel(gray, cv2.CV_64F, 0,1)
+    
+    sobel_abs= np.absolute(sobel)
+    sobel_8bit= np.uint8(255* sobel_abs/np.max(sobel_abs))
+    binary_output= np.zeros_like(sobel_8bit) 
+    binary_output[(sobel_8bit>=thresh_min) & (thresh_max>=sobel_8bit)]=1
+    
+    return binary_output
+    
+    
+    
+def sobel_magnitude(img, thresh, convert=True):
+    gray= img
+    if(convert):
+        gray= cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    
+    sobelx= cv2.Sobel(gray, cv2.CV_64F, 1,0)
+    sobely= cv2.Sobel(gray, cv2.CV_64F, 0,1)
+    
+    mag= (sobelx**2+ sobely**2)**(0.5)
+    
+    sobel_magnitude_8bit= np.uint8(255* mag/np.max(mag))
+    binary_output= np.zeros_like(sobel_magnitude_8bit) 
+    binary_output[(sobel_magnitude_8bit>=thresh[0]) & (thresh[1]>=sobel_magnitude_8bit)]=1
+    
+    return binary_output
+    
+def sobel_gradient_image(img, thresh=(0, np.pi/2), convert=True):
+    gray= img
+    if(convert):
+        gray= cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    
+    sobelx= cv2.Sobel(gray, cv2.CV_64F, 1,0, ksize=15)
+    sobely= cv2.Sobel(gray, cv2.CV_64F, 0,1, ksize=15)
+    
+    abs_sobelx= np.absolute(sobelx)
+    abs_sobely= np.absolute(sobely)
+    
+    grad= np.arctan2(abs_sobely, abs_sobelx)
+    
+    binary_output=np.zeros_like(grad)
+    binary_output[(grad>thresh[0])&(grad<thresh[1])]=1
+    return binary_output
+    
+fit_prev_left=[]
+fit_prev_right=[]
+fit_sum_left=0
+fit_sum_right=0
