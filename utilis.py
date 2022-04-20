@@ -335,3 +335,113 @@ def plot_details(laneImage,curv_rad,center_dist,width_lane,lane_center_position)
 width_lane_avg=[]
 radius_values = Queue(maxsize=15)
 radius_sum=0
+
+def calculate_radius_position(combined, l_fit, r_fit, l_lane_inds, r_lane_inds,lane_width):
+    
+    # Define conversions in x and y from pixels space to meters
+    ym_per_pix = 30/720 # meters per pixel in y dimension
+    xm_per_pix = 3.7/700 # meters per pixel in x dimension
+    left_curverad, right_curverad, center_dist, width_lane = (0, 0, 0, 0)
+    h = combined.shape[0]
+    w = combined.shape[1]
+    ploty = np.linspace(0, h-1, h)
+    y_eval = np.max(ploty)
+  
+    # Identify the x and y positions of all nonzero pixels in the image
+    nonzero = combined.nonzero()
+    nonzeroy = np.array(nonzero[0])
+    nonzerox = np.array(nonzero[1])
+    
+    # Extract left and right line pixel positions
+    leftx = nonzerox[l_lane_inds]
+    lefty = nonzeroy[l_lane_inds] 
+    rightx = nonzerox[r_lane_inds]
+    righty = nonzeroy[r_lane_inds]
+    
+    if len(leftx) != 0 and len(rightx) != 0:
+        # Fit new polynomials to x,y in world space
+        left_fit_cr = np.polyfit(lefty*ym_per_pix, leftx*xm_per_pix, 2)
+        right_fit_cr = np.polyfit(righty*ym_per_pix, rightx*xm_per_pix, 2)
+        
+        #applying the formula for 
+        left_curverad = ((1 + (2*left_fit_cr[0]*y_eval*ym_per_pix + left_fit_cr[1])**2)**1.5) / np.absolute(2*left_fit_cr[0])
+        right_curverad = ((1 + (2*right_fit_cr[0]*y_eval*ym_per_pix + right_fit_cr[1])**2)**1.5) / np.absolute(2*right_fit_cr[0])
+        
+        width_lane= lane_width*xm_per_pix
+        if(len(width_lane_avg) != 0):
+            avg_width=(sum(width_lane_avg)/len(width_lane_avg))
+            if abs(avg_width-width_lane)<0.5:
+                width_lane_avg.append(width_lane)
+            else:
+                width_lane=avg_width
+    
+    
+    # Averaging radius value over past 15 frames
+    global radius_sum           
+    if(radius_values.full()):
+        el=radius_values.get()
+        
+        radius_sum-=el
+    curve_radius= (left_curverad+right_curverad)/2
+    radius_values.put(curve_radius)
+    radius_sum+=curve_radius
+    
+    no_of_radius_values=radius_values.qsize() 
+    curve_radius= radius_sum/no_of_radius_values
+    
+    center_dist,lane_center_position= get_car_position(l_fit,r_fit,w,h) 
+    return curve_radius, center_dist,width_lane,lane_center_position
+    
+    
+def lane_line_pipeline(img, smoothen, prevFrameCount):
+    
+    undistorted_image = undistort(img)
+    warped_image,M = warp_image(undistorted_image)
+    
+    imgY, imgCr, imgb, imgS= custom_channel_converter(warped_image)
+    
+    Ybinary = channel_wise_thresholding(imgY,(215,255))
+    Crbinary = channel_wise_thresholding(imgCr,(215,255))
+    Lbinary = channel_wise_thresholding(imgb,(215,255))
+    Sbinary = channel_wise_thresholding(imgS,(200,255))
+    
+    combined = np.zeros_like(imgY)
+    combined[(Crbinary==1)|(Ybinary==1)|((Lbinary==1)&(Sbinary==1))] = 1
+    out_img, out_img1, left_fitx, right_fitx, ploty, left_fit, right_fit, left_lane_inds, right_lane_inds, lane_width = plot_line(combined,smoothen,prevFrameCount)
+    
+    curverad, center_dist, width_lane, lane_center_position = calculate_radius_position(combined,
+                                                left_fit, 
+                                                right_fit,
+                                                left_lane_inds,
+                                                right_lane_inds,lane_width)
+    
+    laneImage, new_img = draw_lane(img,
+                                   combined,
+                                   left_fitx,
+                                   right_fitx, M)
+    
+    unwarped_image = reverse_warping(laneImage,M)
+    laneImage = cv2.addWeighted(new_img, 1, unwarped_image, 0.5, 0)
+    
+    laneImage, copy = plot_details(laneImage,
+                                   curverad,
+                                   center_dist,
+                                   width_lane,
+                                   lane_center_position)
+    
+    return img, out_img, out_img1, unwarped_image, laneImage, combined, copy            
+              
+def video_pipline(image):
+    
+    smoothen = True
+    prevFrameCount = 4
+    rgb_image, out_img, out_img1, unwarped_image, laneImage, combined, data_copy = lane_line_pipeline(image, smoothen, prevFrameCount)
+    out_image = np.zeros((720,1280,3), dtype=np.uint8)
+    out_image[0:720,0:1280,:] = cv2.resize(laneImage,(1280,720))
+    out_image[20:190,960:1260,:] = cv2.resize(np.dstack((combined*255,
+                                                         combined*255,
+                                                         combined*255)),(300,170))
+    
+    out_image[210:380,960:1260,:] = cv2.resize(out_img,(300,170))
+
+    return out_image
